@@ -11,16 +11,19 @@ from web3 import Web3, HTTPProvider
 from web3.middleware import geth_poa_middleware
 from sanic import Sanic, response
 from retry import retry
+import random
 
 # https://bsc-dataseed1.defibit.io/
-# https://bsc-dataseed1.ninicoin.io/
-BSC_RPC_URL = os.environ.get('BSC_RPC_URL', 'https://bsc-dataseed.binance.org/') 
+# https://bsc-dataseed1.ninicoin.io/  # is to slow
+BSC_RPCS = ['https://bsc-dataseed.binance.org/', 'https://bsc-dataseed1.defibit.io/']
+BSC_RPC_URL = os.environ.get('BSC_RPC_URL', BSC_RPCS[0])
 
 QUANTILES = dict(SafeGasPrice=0, ProposeGasPrice=5, FastGasPrice=7.5, InstantGasPrice=15)
-WINDOW = 100
+WINDOW = 50
 
 
-w3 = Web3(HTTPProvider(BSC_RPC_URL))
+w3 = Web3(HTTPProvider(BSC_RPC_URL, request_kwargs={'timeout': 5}))
+w3.middleware_onion.inject(geth_poa_middleware, layer=0)
 app = Sanic('bscgas')
 log = logging.getLogger('sanic.error')
 app.config.LOGO = ''
@@ -28,26 +31,39 @@ block_times = deque(maxlen=WINDOW)
 blocks_gwei = deque(maxlen=WINDOW)
 stats = {}
 
+instances = {}
 
-@retry(Exception, delay=8, logger=log)
+def web3_instance():  
+    random_index = random.randint(0, len(BSC_RPCS)-1)
+    w3 = Web3(HTTPProvider(BSC_RPCS[random_index],request_kwargs={'timeout': 5}))
+    w3.middleware_onion.inject(geth_poa_middleware, layer=0, name='i'+str(random_index))
+    # print("get index ----:", random_index)
+    return w3
+    
+
+# @retry(Exception, delay=2, logger=log)
 def worker(skip_warmup):
     stats['health'] = False
-    w3.middleware_onion.inject(geth_poa_middleware, layer=0)
-    print(w3.clientVersion)
-    latest = w3.eth.filter('latest')
-    print('worker:', latest)
+    localw3 = web3_instance()
+    localw3.middleware_onion.inject(geth_poa_middleware, layer=0)
+    # print(localw3.clientVersion)
+    latest = localw3.eth.filter('latest')
+    # print('worker:', latest)
     if not skip_warmup and not block_times:
         warmup()
     
     while True:
         try:
             for n in latest.get_new_entries():
-                process_block(n)
+                process_block(localw3, n)
                 log.info(str(stats))
-            if not w3.eth.syncing:
+            if not localw3.eth.syncing:
                 stats['health'] = True
         except:
-            sleep(8)
+            sleep(5)
+            localw3 = web3_instance()
+            latest = localw3.eth.filter('latest')
+            # print("do reconnect -------", localw3, latest)
             continue
         sleep(2)
 
@@ -56,7 +72,7 @@ def warmup():
     tip = w3.eth.blockNumber
     with click.progressbar(range(tip - WINDOW, tip), label='warming up') as bar:
         for n in bar:
-            process_block(n)
+            process_block(w3, n)
 
 
 def block_time():
@@ -70,8 +86,8 @@ def block_time():
 def average(lst):
     return sum(lst) / len(lst)
 
-def process_block(n):
-    block = w3.eth.getBlock(n, True)
+def process_block(w3i, n):
+    block = w3i.eth.getBlock(n, True)
     stats['block_number'] = block.number
 
     block_times.append(block.timestamp)
@@ -88,13 +104,13 @@ def process_block(n):
         data = pd.Series(blocks_gwei)
         for name, q in QUANTILES.items():
             if name in ['FastGasPrice']:
-                stats[name] = round(float(w3.fromWei(average(prices), 'gwei')), 3)
+                stats[name] = round(float(w3i.fromWei(average(prices), 'gwei')), 3)
             elif name in ['InstantGasPrice']:
-                stats[name] = round(float(w3.fromWei(max(prices), 'gwei')), 3)
+                stats[name] = round(float(w3i.fromWei(max(prices), 'gwei')), 3)
             else:
                 price = data.quantile(q / 100)
-                stats[name] = round(float(w3.fromWei(price, 'gwei')), 3)
-
+                stats[name] = round(float(w3i.fromWei(price, 'gwei')), 3)
+    print(stats)
     return block
 
 
