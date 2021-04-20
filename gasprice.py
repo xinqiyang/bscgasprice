@@ -12,7 +12,7 @@ from web3.middleware import geth_poa_middleware
 from sanic import Sanic, response
 from retry import retry
 import random
-
+import time
 # https://bsc-dataseed1.defibit.io/
 # https://bsc-dataseed1.ninicoin.io/  # is to slow
 BSC_RPCS = ['https://bsc-dataseed.binance.org/', 'https://bsc-dataseed1.defibit.io/']
@@ -22,7 +22,7 @@ QUANTILES = dict(SafeGasPrice=0, ProposeGasPrice=5, FastGasPrice=7.5, InstantGas
 WINDOW = 50
 
 
-w3 = Web3(HTTPProvider(BSC_RPC_URL, request_kwargs={'timeout': 5}))
+w3 = Web3(HTTPProvider(BSC_RPC_URL, request_kwargs={'timeout': 15}))
 w3.middleware_onion.inject(geth_poa_middleware, layer=0)
 app = Sanic('bscgas')
 log = logging.getLogger('sanic.error')
@@ -35,9 +35,9 @@ instances = {}
 
 def web3_instance():  
     random_index = random.randint(0, len(BSC_RPCS)-1)
-    w3 = Web3(HTTPProvider(BSC_RPCS[random_index],request_kwargs={'timeout': 5}))
+    w3 = Web3(HTTPProvider(BSC_RPCS[random_index],request_kwargs={'timeout': 15}))
     w3.middleware_onion.inject(geth_poa_middleware, layer=0, name='i'+str(random_index))
-    # print("get index ----:", random_index)
+    log.warning("get index ----: {} {}".format(str(random_index), BSC_RPCS[random_index]))
     return w3
     
 
@@ -63,7 +63,7 @@ def worker(skip_warmup):
             sleep(5)
             localw3 = web3_instance()
             latest = localw3.eth.filter('latest')
-            # print("do reconnect -------", localw3, latest)
+            log.warning("do reconnect ------- {} {} {}".format(int(time.time()), str(localw3), str(latest)))
             continue
         sleep(2)
 
