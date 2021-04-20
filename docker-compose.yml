@@ -1,0 +1,8 @@
+bscgasprice:
+  container_name: bscgasprice
+  ports:
+    - "6669:8000"
+  hostname: bscgasprice
+  privileged: true
+  build: .
+  restart: always
