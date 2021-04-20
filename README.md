@@ -5,7 +5,7 @@ estimates binance smartchain gas price based on recent blocks and provides a sim
 
 ## hosted
 
-- https://coinphd.com/api/gasprice (kindly deployed by [coinphd](https://coinphd.com/))
+- https://coinphd.com/api/bscgasprice (kindly deployed by [coinphd](https://coinphd.com/))
 
 
 ## installation
@@ -25,6 +25,11 @@ docker-compose up -d --build
 ```
 ## api
 - metamask format support.
+- example:  https://coinphd.com/api/bscgasprice 
+```bash
+curl https://coinphd.com/api/bscgasprice
+```
+response: 
 ```json
 {
   "health": true,
